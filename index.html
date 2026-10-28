@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Binary Picture Worksheets</title>
+<style>
+  :root{
+    --paper:#f7f8fa; --ink:#14213d; --muted:#55607a; --line:#cfd5e2;
+    --pixel:#14213d; --accent:#2a6fdb; --accent-ink:#ffffff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --paper:#10151f; --ink:#e8ecf5; --muted:#9aa5bd; --line:#2b3447; --pixel:#e8ecf5; --accent:#5b9bff; --accent-ink:#0b1220; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 "Trebuchet MS","Segoe UI",system-ui,sans-serif}
+  main{max-width:760px;margin:0 auto;padding:28px 18px 60px}
+  h1{font-size:1.9rem;margin:0 0 4px;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:0 0 22px}
+  .bits{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;width:160px;margin:0 0 18px}
+  .bits i{aspect-ratio:1;background:var(--line);display:block}
+  .bits i.on{background:var(--pixel)}
+  label.block{display:block;font-weight:700;margin:18px 0 6px}
+  textarea{width:100%;min-height:220px;font:15px/1.4 ui-monospace,Consolas,monospace;padding:10px;border:1.5px solid var(--line);border-radius:4px;background:transparent;color:var(--ink)}
+  textarea:focus,button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+  .opts{margin:12px 0}
+  .opts label{display:flex;gap:8px;align-items:flex-start;margin:6px 0;color:var(--ink)}
+  .opts small{color:var(--muted);display:block}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  button{font:inherit;font-weight:700;padding:10px 18px;border-radius:4px;border:1.5px solid var(--accent);cursor:pointer}
+  button.primary{background:var(--accent);color:var(--accent-ink)}
+  button.ghost{background:transparent;color:var(--accent)}
+  #status{margin-top:14px;min-height:1.5em;color:var(--muted)}
+  #status.err{color:#c0392b}
+  .pv{margin-top:22px}
+  .pv h2{font-size:1.05rem;margin:0 0 6px}
+  .pv iframe{width:100%;height:80vh;min-height:520px;border:1.5px solid var(--line);border-radius:4px;background:#fff}
+  .pv a{color:var(--accent);font-weight:700}
+  details{margin-top:30px;border-top:1px solid var(--line);padding-top:14px;color:var(--muted)}
+  summary{cursor:pointer;color:var(--ink);font-weight:700}
+  details li{margin:6px 0}
+</style>
+</head>
+<body>
+<main>
+  <div class="bits" aria-hidden="true" id="bits"></div>
+  <h1>Binary picture worksheets</h1>
+  <p class="sub">Paste a class list. Download one PDF with an individualized two-sided worksheet per student, followed by the teacher key and reference pictures.</p>
+
+  <label class="block" for="names">Student names (one per line)</label>
+  <textarea id="names" spellcheck="false" placeholder="Ada Lovelace&#10;Grace Hopper&#10;Alan Turing"></textarea>
+
+  <div class="opts">
+    <label><input type="checkbox" id="pad" checked>
+      <span>Add spare sheets to complete groups of four<small>Part 3 and Challenge 3 need all four sections (A, B, C, D) of a picture. Spares ("Spare 1", ...) fill any missing sections so no group is incomplete.</small></span></label>
+    <label><input type="checkbox" id="sepkey">
+      <span>Download the teacher key as a separate PDF<small>Keeps answers out of the stack that gets printed for students.</small></span></label>
+  </div>
+
+  <div class="row">
+    <button class="ghost" id="preview">Preview PDF</button>
+    <button class="primary" id="go">Download PDF</button>
+    <button class="ghost" id="sample">Load sample names</button>
+  </div>
+  <div id="status" role="status"></div>
+  <div id="previews"></div>
+
+  <details>
+    <summary>How the sheets are assigned</summary>
+    <ul>
+      <li><b>Front, part 1:</b> everyone draws the same smiley from 8 bytes.</li>
+      <li><b>Front, part 2:</b> one of 8 pictures (dog, cat, fish, bird, house, heart, tree, star), rotating down the list.</li>
+      <li><b>Front, part 3:</b> students are grouped four at a time in list order. Each group shares a picture number (1 to 4) and holds sections A, B, C, D of a 16 x 16 picture.</li>
+      <li><b>Back, challenges 1 and 2:</b> bytes written in decimal; each picture comes from a pool of 32.</li>
+      <li><b>Back, challenge 3:</b> picture ID and section are written in binary (16 pictures; 0001 = A, 0010 = B, 0011 = C, 0100 = D). Groups here are different from part 3, so partners change.</li>
+    </ul>
+  </details>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+/* ---------- Picture data (8x8 sprites, # = 1) ---------- */
+const SMILEY = ["..####..",".#....#.","#.#..#.#","#......#","#.#..#.#","#..##..#",".#....#.","..####.."];
+
+const RAW = [
+ ["dog",["##....##","##.##.##",".######.",".#.##.#.",".######.","..#..#..","..####..","...##..."]],
+ ["cat",["#......#","###..###","########","#.#..#.#","########","##.##.##",".######.","..####.."]],
+ ["fish",["........","........","...###..","#.#####.","######.#","#.#####.","...###..","........"]],
+ ["bird",["..###...",".#####..",".#.#####","..####..","..####..",".######.","..#..#..","..#..#.."]],
+ ["house",["...##...","..####..",".######.","########","#.#..#.#","#..##..#","#..##..#","########"]],
+ ["heart",[".##..##.","########","########","########",".######.","..####..","...##...","........"]],
+ ["tree",["...##...","..####..",".######.","..####..",".######.","########","...##...","...##..."]],
+ ["star",["...##...","...##...","########",".######.","..####..",".##..##.",".#....#.","........"]],
+ ["sun",["#..##..#",".#.##.#.","..####..","########","########","..####..",".#.##.#.","#..##..#"]],
+ ["moon",["..###...",".###....","###.....","###.....","###.....","###.....",".###....","..###..."]],
+ ["flower",["..#..#..",".#.##.#.","..####..",".#.##.#.","..#..#..","...##...","...##...","...##..."]],
+ ["apple",["....##..","...##...",".######.","########","########","########",".######.","..#..#.."]],
+ ["mug",["..#.#...","######..","########","######.#","######.#","########","######..","........"]],
+ ["key",["..###...",".#...#..",".#...#..","..###...","...#....","...##...","...#....","...##..."]],
+ ["sailboat",["...#....","...##...","...###..","...####.","...#....","########",".######.","..####.."]],
+ ["car",["........","..####..",".######.","########","########","########",".##..##.",".##..##."]],
+ ["umbrella",["..####..",".######.","########","#.#.#.#.","...#....","...#....","...#....","..##...."]],
+ ["butterfly",["#..##..#","##.##.##","########","###..###","###..###","########","##.##.##","#..##..#"]],
+ ["mushroom",["..####..",".######.","#.####.#","########","...##...","...##...","..####..","........"]],
+ ["ghost",["..####..",".######.","##.##.##","########","########","########","########","#.#.#.#."]],
+ ["diamond",["...##...","..####..",".######.","########","########",".######.","..####..","...##..."]],
+ ["snowman",["..####..","..#..#..","..####..",".######.","########","########","########",".######."]],
+ ["bell",["...##...","..####..","..####..",".######.",".######.","########","........","...##..."]],
+ ["crown",["#..##..#","#.####.#","########","########","########","########","........","........"]],
+ ["rocket",["...##...","..####..","..####..","..#..#..","..####..",".######.","##.##.##","#..##..#"]],
+ ["balloon",["..####..",".######.",".######.",".######.","..####..","...##...","...#....","...#...."]],
+ ["anchor",["...##...","..#..#..","...##...",".######.","...##...","#..##..#",".#.##.#.","..####.."]],
+ ["tent",["...##...","..####..",".######.","########","###..###","##....##","##....##","########"]],
+ ["cactus",["...##...","#..##..#","#..##..#","########","...##...","...##...","...##...",".######."]],
+ ["cloud",["........","..###...",".#####..","#######.","########","########",".######.","........"]],
+ ["lightning",["....###.","...###..","..###...",".######.","...###..","..###...",".##.....",".#......"]],
+ ["robot",["...##...",".######.",".#.##.#.",".######.","..####..","########","#.####.#",".##..##."]]
+];
+
+const toBytes = rows => rows.map(r => parseInt(r.replace(/#/g,'1').replace(/\./g,'0'), 2));
+const POOL = RAW.map(([name, rows]) => ({ name, bytes: toBytes(rows) }));
+const SMILEY_BYTES = toBytes(SMILEY);
+const P2_IDX = [0,1,2,3,4,5,6,7];                    // part 2 pictures
+const P3_IDX = [24, 26, 27, 29];                      // part 3 pictures: rocket, anchor, tent, cloud (none repeat in Challenge 3)
+const C3_BASE = 8;                                    // challenge 3 pictures: pool[8..23]
+const LETTERS = ['A','B','C','D'];
+
+/* 8x8 sprite -> 16 rows of 16 bits (each pixel becomes 2x2) */
+function scale2(bytes){
+  const out = [];
+  bytes.forEach(b => {
+    let r = 0;
+    for (let k = 7; k >= 0; k--) r = (r << 2) | (((b >> k) & 1) ? 3 : 0);
+    out.push(r, r);
+  });
+  return out;
+}
+/* sections: A top-left, B top-right, C bottom-left, D bottom-right */
+function section(rows16, sec){
+  const r0 = sec >= 2 ? 8 : 0, right = sec % 2 === 1;
+  return rows16.slice(r0, r0 + 8).map(v => right ? (v & 255) : ((v >> 8) & 255));
+}
+const bin = (n, w = 8) => n.toString(2).padStart(w, '0');
+
+/* ---------- Assignment ---------- */
+function assign(names){
+  const N = names.length, G = Math.max(1, Math.ceil(N / 4));
+  return names.map((name, i) => {
+    const a = (i * 5 + 3) % 32;
+    let b = (i * 7 + 11) % 32; if (b === a) b = (b + 1) % 32;
+    const cg = i % G;
+    return {
+      name, i,
+      p2: P2_IDX[i % 8],
+      p3pic: Math.floor(i / 4) % 4,
+      p3sec: i % 4,
+      cpic: (cg * 5 + 3) % 16,
+      csec: Math.floor(i / G),
+      a, b
+    };
+  });
+}
+
+/* ---------- PDF drawing helpers ---------- */
+const W = 215.9, H = 279.4, PM = 12;
+
+function newDoc(){
+  const { jsPDF } = window.jspdf;
+  const d = new jsPDF({ unit: 'mm', format: 'letter' });
+  d._fresh = true;
+  return d;
+}
+function page(d){ if (d._fresh) d._fresh = false; else d.addPage(); }
+
+function header(d, name, sub){
+  d.setFont('helvetica','normal'); d.setFontSize(9); d.setTextColor(110);
+  d.text(sub, PM, 10);
+  d.setFont('helvetica','bold'); d.setFontSize(18); d.setTextColor(0);
+  d.text('Name: ' + name, PM, 19);
+  d.setDrawColor(0); d.setLineWidth(0.4); d.line(PM, 21.5, W - PM, 21.5);
+}
+function heading(d, t, x, y){
+  d.setFont('helvetica','bold'); d.setFontSize(11); d.setTextColor(0); d.text(t, x, y);
+}
+function note(d, t, x, y, w){
+  d.setFont('helvetica','normal'); d.setFontSize(8.5); d.setTextColor(70);
+  const lines = d.splitTextToSize(t, w); d.text(lines, x, y); d.setTextColor(0);
+  return y + lines.length * 3.6;
+}
+
+/* Blank grid for students (rows null) or filled grid for reference */
+function grid(d, x, y, cell, n, o = {}){
+  const size = cell * n;
+  if (o.marks){
+    d.setFont('helvetica','bold'); d.setFontSize(o.markSize || 44); d.setTextColor(222);
+    const q = size / 4;
+    [['A',q,q],['B',3*q,q],['C',q,3*q],['D',3*q,3*q]].forEach(([L,dx,dy]) =>
+      d.text(L, x + dx, y + dy, { align: 'center', baseline: 'middle' }));
+    d.setTextColor(0);
+  }
+  d.setDrawColor(130); d.setLineWidth(0.15);
+  for (let k = 0; k <= n; k++){
+    d.line(x + k * cell, y, x + k * cell, y + size);
+    d.line(x, y + k * cell, x + size, y + k * cell);
+  }
+  if (n === 16){
+    d.setDrawColor(0); d.setLineWidth(0.55);
+    d.line(x + size/2, y, x + size/2, y + size);
+    d.line(x, y + size/2, x + size, y + size/2);
+  }
+  d.setDrawColor(0); d.setLineWidth(0.5); d.rect(x, y, size, size);
+  if (o.rowNums){
+    d.setFont('helvetica','normal'); d.setFontSize(6.5); d.setTextColor(120);
+    for (let r = 0; r < n; r++){
+      if (n === 16 && r % 2 === 1) continue;
+      d.text(String(r + 1), x - 1.4, y + (r + 0.5) * cell, { align: 'right', baseline: 'middle' });
+    }
+    d.setTextColor(0);
+  }
+}
+/* Small filled picture for the teacher pages */
+function mini(d, x, y, cell, n, rows){
+  d.setFillColor(0);
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++)
+    if ((rows[r] >> (n - 1 - c)) & 1) d.rect(x + c * cell, y + r * cell, cell, cell, 'F');
+  d.setDrawColor(120); d.setLineWidth(0.2); d.rect(x, y, cell * n, cell * n);
+  if (n === 16){ d.setLineWidth(0.15); d.line(x + cell*8, y, x + cell*8, y + cell*16); d.line(x, y + cell*8, x + cell*16, y + cell*8); }
+}
+function byteBlock(d, x, y, bytes, mode, step = 8){
+  d.setFont('courier','normal'); d.setFontSize(11); d.setTextColor(0);
+  const f = j => mode === 'dec'
+    ? 'R' + (j + 1) + ': ' + String(bytes[j]).padStart(3, ' ') + ' = ________'
+    : 'R' + (j + 1) + ': ' + bin(bytes[j]);
+  for (let k = 0; k < 4; k++) d.text(f(2 * k) + '    ' + f(2 * k + 1), x, y + k * step);
+}
+function bank(d, x, y, w, title, words){
+  d.setFont('helvetica','bold'); d.setFontSize(8.5); d.setTextColor(0);
+  d.text(title, x + 2, y + 4.2);
+  d.setFont('helvetica','normal'); d.setFontSize(9);
+  const lines = d.splitTextToSize(words.join(',  '), w - 4);
+  d.text(lines, x + 2, y + 8.6);
+  const h = 8.6 + lines.length * 3.8;
+  d.setDrawColor(120); d.setLineWidth(0.25); d.rect(x, y, w, h);
+  return y + h;
+}
+function answerLine(d, x, y, label, len = 55){
+  d.setFont('helvetica','bold'); d.setFontSize(10); d.setTextColor(0);
+  d.text(label, x, y);
+  const w = d.getTextWidth(label);
+  d.setLineWidth(0.3); d.setDrawColor(0); d.line(x + w + 2, y + 0.6, x + w + 2 + len, y + 0.6);
+}
+
+/* ---------- Student pages ---------- */
+function studentPages(d, s){
+  const p2 = POOL[s.p2], p3 = POOL[P3_IDX[s.p3pic]], c3 = POOL[C3_BASE + s.cpic];
+  const A = POOL[s.a], B = POOL[s.b];
+
+  /* FRONT */
+  page(d);
+  header(d, s.name, 'Binary pictures: front');
+  note(d, 'Shade a box for every 1. Leave a box blank for every 0. Each byte is one row of the grid, and R1 is the top row.', PM, 27, W - 2*PM);
+
+  heading(d, 'Part 1: Smiley face', PM, 36);
+  grid(d, 20, 39, 6.5, 8, { rowNums: true });
+  byteBlock(d, 85, 48, SMILEY_BYTES, 'bin', 9);
+
+  heading(d, 'Part 2: Mystery picture', PM, 98);
+  grid(d, 20, 101, 6.5, 8, { rowNums: true });
+  byteBlock(d, 85, 108, p2.bytes, 'bin', 8);
+  bank(d, 85, 138, 118, 'Word bank', P2_IDX.map(k => POOL[k].name));
+  answerLine(d, 85, 158, 'This picture is a:');
+
+  heading(d, 'Part 3: Team picture (16 x 16)', PM, 166);
+  grid(d, 20, 170, 5, 16, { marks: true, rowNums: true, markSize: 40 });
+  d.setFont('helvetica','bold'); d.setFontSize(22); d.setTextColor(0);
+  d.text('Picture ' + (s.p3pic + 1), 112, 182);
+  d.text('Section ' + LETTERS[s.p3sec], 112, 192);
+  byteBlock(d, 112, 202, section(scale2(p3.bytes), s.p3sec), 'bin', 8);
+  const yy = note(d, 'Shade section ' + LETTERS[s.p3sec] + ' only. Find classmates holding Picture ' + (s.p3pic + 1) + ' to get the other three sections.', 112, 237, 90);
+  bank(d, 112, yy + 1, 90, 'Word bank', P3_IDX.map(k => POOL[k].name));
+  answerLine(d, 112, 262, 'This picture is a:', 45);
+
+  /* BACK */
+  page(d);
+  header(d, s.name, 'Binary pictures: challenges');
+  bank(d, PM, 25, W - 2*PM, 'Word bank for Challenges 1 and 2 (32 pictures)', POOL.map(p => p.name));
+
+  heading(d, 'Challenge 1: Decimal bytes', PM, 49);
+  note(d, 'Place values: 128  64  32  16  8  4  2  1. Write each number in binary, then shade the grid.', 70, 49, 130);
+  grid(d, 20, 53, 5.2, 8, { rowNums: true });
+  byteBlock(d, 70, 60, A.bytes, 'dec', 8);
+  answerLine(d, 70, 93, 'This picture is a:');
+
+  heading(d, 'Challenge 2: Decimal bytes again', PM, 102);
+  grid(d, 20, 106, 5.2, 8, { rowNums: true });
+  byteBlock(d, 70, 113, B.bytes, 'dec', 8);
+  answerLine(d, 70, 146, 'This picture is a:');
+
+  heading(d, 'Challenge 3: Binary labels', PM, 156);
+  grid(d, 20, 160, 5, 16, { marks: true, rowNums: true, markSize: 40 });
+  d.setFont('helvetica','bold'); d.setFontSize(15); d.setTextColor(0);
+  d.text('Picture ID: ' + bin(s.cpic, 4), 112, 170);
+  d.text('Section: ' + bin(s.csec + 1, 4), 112, 178);
+  note(d, 'Sections: 0001 = A, 0010 = B, 0011 = C, 0100 = D. Shade your section, then find classmates with the same Picture ID.', 112, 184, 90);
+  byteBlock(d, 112, 198, section(scale2(c3.bytes), s.csec), 'bin', 8);
+  const y3 = bank(d, 112, 226, 90, 'Word bank (16 pictures)', Array.from({length:16}, (_, k) => POOL[C3_BASE + k].name));
+  answerLine(d, 112, y3 + 8, 'Section letter:', 14);
+  answerLine(d, 112, y3 + 16, 'This picture is a:', 45);
+}
+
+/* ---------- Teacher key ---------- */
+function teacherKey(d, students){
+  const cols = [PM, 20, 66, 90, 114, 136, 158];
+  const titles = ['#','Name','Part 2','Part 3','Chall. 1','Chall. 2','Chall. 3 (ID / section)'];
+  const rowH = 6, perPage = 38;
+  for (let start = 0; start < students.length; start += perPage){
+    page(d);
+    d.setFont('helvetica','bold'); d.setFontSize(15); d.setTextColor(0);
+    d.text('TEACHER KEY: do not distribute', PM, 16);
+    d.setFontSize(8.5); d.setFont('helvetica','normal'); d.setTextColor(80);
+    d.text('Part 1 is always a smiley face. Part 3 entries show picture number, section letter, then the answer.', PM, 21);
+    let y = 29;
+    d.setFont('helvetica','bold'); d.setFontSize(8.5); d.setTextColor(0);
+    titles.forEach((t, k) => d.text(t, cols[k], y));
+    d.setLineWidth(0.4); d.setDrawColor(0); d.line(PM, y + 1.8, W - PM, y + 1.8);
+    d.setFont('helvetica','normal'); d.setFontSize(8.5);
+    students.slice(start, start + perPage).forEach((s, k) => {
+      y += rowH;
+      let nm = s.name; while (d.getTextWidth(nm) > 44 && nm.length > 3) nm = nm.slice(0, -1);
+      const cells = [
+        String(s.i + 1), nm, POOL[s.p2].name,
+        (s.p3pic + 1) + LETTERS[s.p3sec] + ': ' + POOL[P3_IDX[s.p3pic]].name,
+        POOL[s.a].name, POOL[s.b].name,
+        bin(s.cpic, 4) + ' / ' + bin(s.csec + 1, 4) + ' (' + LETTERS[s.csec] + '): ' + POOL[C3_BASE + s.cpic].name
+      ];
+      cells.forEach((t, c) => d.text(t, cols[c], y));
+      d.setDrawColor(220); d.setLineWidth(0.15); d.line(PM, y + 1.8, W - PM, y + 1.8);
+    });
+  }
+
+  /* Reference page 1 */
+  page(d);
+  d.setFont('helvetica','bold'); d.setFontSize(15); d.setTextColor(0);
+  d.text('Reference pictures: 8 x 8', PM, 16);
+  d.setFontSize(10); d.text('Part 1: smiley face', PM, 25);
+  mini(d, PM, 28, 2.6, 8, SMILEY_BYTES);
+  d.setFont('helvetica','normal'); d.setFontSize(8.5); d.setTextColor(70);
+  d.text('Pictures 1 to 8 are used in Part 2. All 32 are used in Challenges 1 and 2.', 50, 34);
+  d.setTextColor(0);
+  const cell = 2, gap = 6.3, perRow = 8;
+  POOL.forEach((p, k) => {
+    const col = k % perRow, row = Math.floor(k / perRow);
+    const x = PM + col * (cell * 8 + gap), y = 58 + row * (cell * 8 + gap + 5);
+    mini(d, x, y, cell, 8, p.bytes);
+    d.setFont('helvetica','normal'); d.setFontSize(7); d.setTextColor(0);
+    d.text((k + 1) + '. ' + p.name, x + cell * 4, y + cell * 8 + 3.5, { align: 'center' });
+  });
+
+  /* Reference page 2 */
+  page(d);
+  d.setFont('helvetica','bold'); d.setFontSize(15); d.setTextColor(0);
+  d.text('Reference pictures: 16 x 16', PM, 16);
+  d.setFont('helvetica','normal'); d.setFontSize(8.5); d.setTextColor(70);
+  d.text('Sections: A top-left, B top-right, C bottom-left, D bottom-right.', PM, 22);
+  d.setTextColor(0); d.setFont('helvetica','bold'); d.setFontSize(10);
+  d.text('Part 3 pictures', PM, 31);
+  P3_IDX.forEach((idx, k) => {
+    const x = PM + k * 46, y = 34;
+    mini(d, x, y, 2, 16, scale2(POOL[idx].bytes));
+    d.setFont('helvetica','normal'); d.setFontSize(8); d.text('Picture ' + (k + 1) + ': ' + POOL[idx].name, x + 16, y + 36, { align: 'center' });
+  });
+  d.setFont('helvetica','bold'); d.setFontSize(10);
+  d.text('Challenge 3 pictures (Picture ID in binary)', PM, 90);
+  for (let k = 0; k < 16; k++){
+    const col = k % 6, row = Math.floor(k / 6);
+    const x = PM + col * 32, y = 94 + row * 40;
+    mini(d, x, y, 1.5, 16, scale2(POOL[C3_BASE + k].bytes));
+    d.setFont('helvetica','normal'); d.setFontSize(7.5); d.setTextColor(0);
+    d.text(bin(k, 4) + ': ' + POOL[C3_BASE + k].name, x + 12, y + 28, { align: 'center' });
+  }
+}
+
+/* ---------- UI ---------- */
+const $ = id => document.getElementById(id);
+const status = (t, err) => { const s = $('status'); s.textContent = t; s.className = err ? 'err' : ''; };
+
+$('bits').innerHTML = SMILEY_BYTES.map(b => bin(b).split('').map(c => '<i class="' + (c === '1' ? 'on' : '') + '"></i>').join('')).join('');
+
+$('sample').addEventListener('click', () => {
+  $('names').value = ['Ada Lovelace','Grace Hopper','Alan Turing','Katherine Johnson','Margaret Hamilton','Dennis Ritchie',
+    'Linus Torvalds','Radia Perlman','Tim Berners-Lee','Hedy Lamarr'].join('\n');
+});
+
+function build(){
+  if (!window.jspdf){ status('The PDF library did not load. Check the internet connection and reload.', true); return null; }
+  let names = $('names').value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!names.length){ status('Add at least one student name.', true); return null; }
+  if ($('pad').checked){
+    let k = 1; while (names.length % 4) names.push('Spare ' + (k++));
+  }
+  const students = assign(names);
+  const sep = $('sepkey').checked;
+  const main = newDoc();
+  students.forEach(s => studentPages(main, s));
+  let key = null;
+  if (sep){ key = newDoc(); teacherKey(key, students); }
+  else teacherKey(main, students);
+  return { main, key, count: students.length, sep };
+}
+
+$('go').addEventListener('click', () => {
+  try {
+    const r = build(); if (!r) return;
+    r.main.save('binary-worksheets.pdf');
+    if (r.key) r.key.save('binary-worksheets-TEACHER-KEY.pdf');
+    status('Created ' + r.count + ' two-sided worksheets' + (r.sep ? ' and a separate teacher key.' : ' plus the teacher key at the end.'));
+  } catch (e){
+    console.error(e); status('Something went wrong: ' + e.message, true);
+  }
+});
+
+let blobUrls = [];
+function showPreview(doc, title){
+  const url = URL.createObjectURL(doc.output('blob'));
+  blobUrls.push(url);
+  const wrap = document.createElement('div');
+  wrap.className = 'pv';
+  const h = document.createElement('h2'); h.textContent = title;
+  const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Open in a new tab';
+  const f = document.createElement('iframe'); f.src = url; f.title = title;
+  wrap.append(h, a, f);
+  $('previews').appendChild(wrap);
+}
+$('preview').addEventListener('click', () => {
+  try {
+    const r = build(); if (!r) return;
+    blobUrls.forEach(u => URL.revokeObjectURL(u)); blobUrls = [];
+    $('previews').innerHTML = '';
+    showPreview(r.main, r.sep ? 'Student worksheets' : 'Worksheets and teacher key');
+    if (r.key) showPreview(r.key, 'Teacher key');
+    status('Preview ready below (' + r.count + ' worksheets). Nothing has been downloaded.');
+    $('previews').scrollIntoView({ behavior: 'smooth' });
+  } catch (e){
+    console.error(e); status('Something went wrong: ' + e.message, true);
+  }
+});
+</script>
+</body>
+</html>
