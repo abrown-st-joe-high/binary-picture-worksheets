@@ -32,6 +32,10 @@
   button.ghost{background:transparent;color:var(--accent)}
   #status{margin-top:14px;min-height:1.5em;color:var(--muted)}
   #status.err{color:#c0392b}
+  .nums{display:flex;gap:22px;flex-wrap:wrap;margin:14px 0 4px}
+  .nums label{display:flex;flex-direction:column;gap:4px;font-weight:700}
+  .nums input{width:90px;font:inherit;padding:6px 8px;border:1.5px solid var(--line);border-radius:4px;background:transparent;color:var(--ink)}
+  .hint{color:var(--muted);font-size:.92rem;margin:4px 0 0}
   .pv{margin-top:22px}
   .pv h2{font-size:1.05rem;margin:0 0 6px}
   .pv iframe{width:100%;height:80vh;min-height:520px;border:1.5px solid var(--line);border-radius:4px;background:#fff}
@@ -39,6 +43,23 @@
   details{margin-top:30px;border-top:1px solid var(--line);padding-top:14px;color:var(--muted)}
   summary{cursor:pointer;color:var(--ink);font-weight:700}
   details li{margin:6px 0}
+
+  .pick{margin:26px 0 8px;border:1.5px solid var(--line);border-radius:6px;padding:4px 14px 14px}
+  .pick > summary{font-size:1.1rem;padding:10px 0}
+  .grp{margin:16px 0 4px}
+  .grp h3{font-size:1rem;margin:0 0 2px}
+  .grp p{margin:0 0 8px;color:var(--muted);font-size:.9rem}
+  .grp .tools{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+  .grp .tools button{padding:4px 12px;font-size:.85rem}
+  .grp .cnt{color:var(--muted);font-size:.9rem}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}
+  .card{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border:1.5px solid var(--line);border-radius:6px;cursor:pointer;font-size:.82rem;text-align:center;user-select:none}
+  .card svg{width:56px;height:56px;color:var(--pixel);background:transparent}
+  .card input{margin:0}
+  .card.off{opacity:.45}
+  .card.off svg{filter:grayscale(1)}
+  .card:has(input:checked){border-color:var(--accent)}
+  .card:has(input:focus-visible){outline:3px solid var(--accent);outline-offset:2px}
 </style>
 </head>
 <body>
@@ -50,9 +71,16 @@
   <label class="block" for="names">Student names (one per line)</label>
   <textarea id="names" spellcheck="false" placeholder="Ada Lovelace&#10;Grace Hopper&#10;Alan Turing"></textarea>
 
+  <details class="pick" open>
+    <summary>Choose pictures</summary>
+    <div id="pickers"></div>
+  </details>
+
   <div class="opts">
     <label><input type="checkbox" id="pad" checked>
       <span>Add spare sheets to complete groups of four<small>Part 3 and Challenge 3 need all four sections (A, B, C, D) of a picture. Spares ("Spare 1", ...) fill any missing sections so no group is incomplete.</small></span></label>
+    <label><input type="checkbox" id="c3dec">
+      <span>Challenge 3 bytes in decimal<small>Challenge 3 keeps its binary picture ID and section, but each byte is written as a decimal number (0 to 255) with a blank for the binary conversion.</small></span></label>
     <label><input type="checkbox" id="sepkey">
       <span>Download the teacher key as a separate PDF<small>Keeps answers out of the stack that gets printed for students.</small></span></label>
   </div>
@@ -69,73 +97,130 @@
     <summary>How the sheets are assigned</summary>
     <ul>
       <li><b>Front, part 1:</b> everyone draws the same smiley from 8 bytes.</li>
-      <li><b>Front, part 2:</b> one of 8 pictures (dog, cat, fish, bird, house, heart, tree, star), rotating down the list.</li>
-      <li><b>Front, part 3:</b> students are grouped four at a time in list order. Each group shares a picture number (1 to 4) and holds sections A, B, C, D of a 16 x 16 picture.</li>
-      <li><b>Back, challenges 1 and 2:</b> bytes written in decimal; each picture comes from a pool of 32.</li>
-      <li><b>Back, challenge 3:</b> picture ID and section are written in binary (16 pictures; 0001 = A, 0010 = B, 0011 = C, 0100 = D). Groups here are different from part 3, so partners change.</li>
+      <li><b>Front, part 2:</b> one of the selected 8 x 8 pictures, rotating down the list.</li>
+      <li><b>Front, part 3:</b> students are grouped four at a time in list order. Each group shares one of the selected 16 x 16 pictures (cycling through them) and holds sections A, B, C, D of it.</li>
+      <li><b>Back, challenges 1 and 2:</b> bytes written in decimal. Each student gets two different pictures from the selected pool, neither the same as that student's part 2 picture.</li>
+      <li><b>Back, challenge 3:</b> picture ID and section are written in binary (0001 = A, 0010 = B, 0011 = C, 0100 = D), with bytes in binary or decimal. Groups differ from part 3, so partners change. Its pictures are never the same as part 2 or part 3 pictures.</li>
     </ul>
   </details>
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
-/* ---------- Picture data (8x8 sprites, # = 1) ---------- */
 const SMILEY = ["..####..",".#....#.","#.#..#.#","#......#","#.#..#.#","#..##..#",".#....#.","..####.."];
-
-const RAW = [
- ["dog",["##....##","##.##.##",".######.",".#.##.#.",".######.","..#..#..","..####..","...##..."]],
- ["cat",["#......#","###..###","########","#.#..#.#","########","##.##.##",".######.","..####.."]],
+const LIB8 = [["dog",["##......","####...#","#####..#",".#######","..######","..#..#..","..#..#..","........"]],
  ["fish",["........","........","...###..","#.#####.","######.#","#.#####.","...###..","........"]],
- ["bird",["..###...",".#####..",".#.#####","..####..","..####..",".######.","..#..#..","..#..#.."]],
- ["house",["...##...","..####..",".######.","########","#.#..#.#","#..##..#","#..##..#","########"]],
  ["heart",[".##..##.","########","########","########",".######.","..####..","...##...","........"]],
  ["tree",["...##...","..####..",".######.","..####..",".######.","########","...##...","...##..."]],
  ["star",["...##...","...##...","########",".######.","..####..",".##..##.",".#....#.","........"]],
  ["sun",["#..##..#",".#.##.#.","..####..","########","########","..####..",".#.##.#.","#..##..#"]],
  ["moon",["..###...",".###....","###.....","###.....","###.....","###.....",".###....","..###..."]],
+ ["key",["..###...",".#...#..",".#...#..","..###...","...#....","...##...","...#....","...##..."]],
+ ["sailboat",["...#....","...##...","...###..","...####.","...#....","########",".######.","..####.."]],
+ ["umbrella",["..####..",".######.","########","#.#.#.#.","...#....","...#....","...#....","..##...."]],
+ ["ghost",["..####..",".######.","##.##.##","########","########","########","########","#.#.#.#."]],
+ ["rocket",["...##...","..####..","..####..","..#..#..","..####..",".######.","##.##.##","#..##..#"]],
+ ["anchor",["...##...","..#..#..","...##...",".######.","...##...","#..##..#",".#.##.#.","..####.."]],
+ ["cactus",["...##...","#..##..#","#..##..#","########","...##...","...##...","...##...",".######."]],
+ ["lightning",["....###.","...###..","..###...",".######.","...###..","..###...",".##.....",".#......"]],
+ ["cat",["#......#","###..###","########","#.#..#.#","########","##.##.##",".######.","..####.."]],
+ ["bird",["..###...",".#.###..","#######.","..######","...#####","....###.","...#.#..","...#.#.."]],
+ ["house",["...##...","..####..",".######.","########","#.#..#.#","#..##..#","#..##..#","########"]],
  ["flower",["..#..#..",".#.##.#.","..####..",".#.##.#.","..#..#..","...##...","...##...","...##..."]],
  ["apple",["....##..","...##...",".######.","########","########","########",".######.","..#..#.."]],
  ["mug",["..#.#...","######..","########","######.#","######.#","########","######..","........"]],
- ["key",["..###...",".#...#..",".#...#..","..###...","...#....","...##...","...#....","...##..."]],
- ["sailboat",["...#....","...##...","...###..","...####.","...#....","########",".######.","..####.."]],
- ["car",["........","..####..",".######.","########","########","########",".##..##.",".##..##."]],
- ["umbrella",["..####..",".######.","########","#.#.#.#.","...#....","...#....","...#....","..##...."]],
+ ["car",["........","..####..",".#.##.#.","########","########",".##..##.",".##..##.","........"]],
  ["butterfly",["#..##..#","##.##.##","########","###..###","###..###","########","##.##.##","#..##..#"]],
  ["mushroom",["..####..",".######.","#.####.#","########","...##...","...##...","..####..","........"]],
- ["ghost",["..####..",".######.","##.##.##","########","########","########","########","#.#.#.#."]],
  ["diamond",["...##...","..####..",".######.","########","########",".######.","..####..","...##..."]],
  ["snowman",["..####..","..#..#..","..####..",".######.","########","########","########",".######."]],
  ["bell",["...##...","..####..","..####..",".######.",".######.","########","........","...##..."]],
  ["crown",["#..##..#","#.####.#","########","########","########","########","........","........"]],
- ["rocket",["...##...","..####..","..####..","..#..#..","..####..",".######.","##.##.##","#..##..#"]],
  ["balloon",["..####..",".######.",".######.",".######.","..####..","...##...","...#....","...#...."]],
- ["anchor",["...##...","..#..#..","...##...",".######.","...##...","#..##..#",".#.##.#.","..####.."]],
  ["tent",["...##...","..####..",".######.","########","###..###","##....##","##....##","########"]],
- ["cactus",["...##...","#..##..#","#..##..#","########","...##...","...##...","...##...",".######."]],
  ["cloud",["........","..###...",".#####..","#######.","########","########",".######.","........"]],
- ["lightning",["....###.","...###..","..###...",".######.","...###..","..###...",".##.....",".#......"]],
- ["robot",["...##...",".######.",".#.##.#.",".######.","..####..","########","#.####.#",".##..##."]]
-];
+ ["robot",["...##...",".######.",".#.##.#.",".######.","..####..","########","#.####.#",".##..##."]]];
+const LIB_P3 = [["owl",["..##........##..","..####....####..",".##############.",".##############.",".##....##....##.",".##.##.##.##.##.",".##.##.##.##.##.",".##....##....##.",".######..######.",".##############.",".####.####.####.",".####.####.####.","..###.####.###..","..############..","...###....###...","..####....####.."]],
+ ["penguin",["................","......####......",".....######.....",".....######.....","....##.##.##....","....###..###....","...###....###...","...##......##...","..###......###..","..###......###..",".####......####.",".####......####.","....#......#....","....##....##....","..##.##..##.##..","...####..####..."]],
+ ["turtle",["................","......####......","......####......","..##..####..##..",".##############.","..##.######.##..","....#.####.#....","...###....###...",".......##.......","...###.##.###...","...####..####...","..####.##.####..",".####.####.####.",".###..####..###.","..##........##..","................"]],
+ ["rabbit",[".....#....#.....","....#.#..#.#....","....#.#..#.#....","....#.#..#.#....","....#.#..#.#....","....#.####.#....",".....######.....",".....######.....","....##.##.##....","....########....",".....##..##.....",".....##..##.....","...##########...","...##########...","...##########...",".....######....."]],
+ ["pineapple",["................",".......#........",".....#.##.#.....",".....#.##.#.....",".....######.....",".....######.....","....##.###.#....","....#.#.#.#.....","...#.###.###....","....#.#.#.#.#...","...###.###.##...","....#.#.#.#.#...",".....###.###....","....#.#.#.#.....",".....#.###......","......#.#......."]],
+ ["castle",["................","................","................",".#.#........#.#.",".###........###.",".###........###.",".#.#........#.#.",".#.##.#..#.##.#.",".#.##########.#.",".##############.",".#####....#####.",".#####....#####.",".######..######.",".######..######.",".######..######.",".######..######."]],
+ ["lighthouse",["................",".......##.......","##....####....##","..###.#..#.###..","#####.#..#.#####","....########....","......####......","......####......","......#..#......",".....##..##.....",".....######.....",".....######.....",".....##..##.....",".....##..##.....","...##########...","...##########..."]],
+ ["bus",["................","................","................",".##############.","################","#...#...#...#..#","#...#...#...#..#","#...#...#...#..#","#...#...#...#..#","################","................","################","################","..#..#....#..#..","..####....####..","................"]]];
+const LIB_C3 = [["pig",["................",".#............#.","..##..####..##..","..############..","..############..","...##########...","..##.######.##..","..##.######.##..","..####....####..","..###......###..","..###..##..###..","...##..##..##...","...###....###...","....########....","......####......","................"]],
+ ["ladybug",["....########....","......####......",".......##.......","......####......",".....######.....","...##.#..#.##...","...##.#..#.##...","..#..##..##..#..","..#..##..##..#..","..#####..#####..","..#####..#####..","..##.##..##.##..","......#..#......","...#.##..##.#...",".....##..##.....","................"]],
+ ["crab",["................","................","...#........#...",".#.###....###.#.","######....######",".#####....#####.",".###.#.##.#.###.","....#########...","...##########...","...###.##.###...","...##########...",".##############.","#...########...#","...#.#.##.#.#...","...#.#.....##...","..#.#......#.#.."]],
+ ["octopus",["................","......####......",".....######.....","....########....","...##########...","...#...##...#...","...#..####..#...","...#...##...#...","...##########...","....##....##....","..##.######.##..","..############..","..############..","..############..",".##.########.##.","....#.####.#...."]],
+ ["airplane",[".......##.......",".......##.......",".......##.......",".......##.......",".......##.......",".......##.......",".......##.......","......####......","....########....","..############..",".##############.","#####..##..#####","##.....##.....##",".......##.......","......####......",".....######....."]],
+ ["truck",["................","................","##########......","##########......","##########......","##########.#####","#........##....#","###########....#","###########....#","################","################","################","....#.......#...","..#..#....#..#..","..####....####..","................"]],
+ ["bicycle",["................","................","................","................","..........###...",".....####..#....",".......#####....","......##..##....","..######..####..",".#...##.##..#.#.","#....##.##..#..#","#...#####...#..#","#.....#..#.....#",".#....#..#....#.","..####....####..","................"]],
+ ["teapot",["................","................",".......#........","......##........","....######....#.","....######...##.",".##########.###.","##.###########..","#...#########...","#...#########...","##.....#####....",".##########.....","....######......","....#######.....","....#######.....","................"]],
+ ["elephant",["................","................","......####......","....########....",".##############.","#####..##..#####","#...########...#","#....######....#","#...########...#","################",".####.####.####.","......####......","......####......","......####......","......####......","......####......"]],
+ ["cupcake",[".......##.......","......####......","......####......","....########....","....#......#....","....########....","...##########...","..#..........#..","...##########...","...##########...","...#.#.#.#.#....",".....#.#.#.#....",".....#.#.#.#....",".....#.#.#.#....",".....#.#.#.#....","................"]],
+ ["icecream",["......####......",".....##..##.....","....########....","....########....","...###.##.###...","...###.##.###...","....########....","...##########...","...##########...","....########....","......##.##.....","........#.......","........#.......",".......#........","........#.......","................"]],
+ ["bee",[".....#....#.....","......#..#......",".......##.......","......####......","..##..#..#..##..",".##.########.##.",".#...######...#.",".##############.",".....######.....","................",".....######.....",".....######.....","................","......####......",".......##.......",".......##......."]],
+ ["frog",["................","................","...###....###...","..#...####...#..","..#.#.####.#.#..","..############..","...##########...","..#####..#####..","..############..","..##........##..","..############..","..############..","..##.######.##..","#####.####.#####","####..####..####",".##..........##."]],
+ ["whale",["................","..#...#.........","...###..........","....#...........","....#...........","....#.###......#","...#########..##","..###########.##",".##.############",".##############.",".##############.",".##############.","......#######..#","...###.....#...#","......###.......","................"]],
+ ["submarine",["................","................",".........#####..",".........##..#..",".........##.....","......#####.....","......#####.....","...#########...#","..###########..#",".###############","###..##..##..###",".###############","..###########.##","...#########..##","...............#","...............#"]],
+ ["snail",["................","................","................",".......######...",".#..#.##....##..",".#..###..##..##.",".#..##.#####..#.",".#.###.#...##.#.",".#####.#.#.##.#.","######.##..#..#.","####.#..####.##.",".###.##.....##..","..##############","..##############","..##############","................"]]];
+const REQ8 = ["dog","fish","heart","tree","star","sun","moon","key","sailboat","umbrella","ghost","rocket","anchor","cactus","lightning"];
 
 const toBytes = rows => rows.map(r => parseInt(r.replace(/#/g,'1').replace(/\./g,'0'), 2));
-const POOL = RAW.map(([name, rows]) => ({ name, bytes: toBytes(rows) }));
+const mk = lib => lib.map(([name, rows]) => ({ name, bytes: toBytes(rows), rows }));
+const L8 = mk(LIB8), L_P3 = mk(LIB_P3), L_C3 = mk(LIB_C3);
 const SMILEY_BYTES = toBytes(SMILEY);
-const P2_IDX = [0,1,2,3,4,5,6,7];                    // part 2 pictures
-const P3_IDX = [24, 26, 27, 29];                      // part 3 pictures: rocket, anchor, tent, cloud (none repeat in Challenge 3)
-const C3_BASE = 8;                                    // challenge 3 pictures: pool[8..23]
 const LETTERS = ['A','B','C','D'];
+let C3_DEC = false;
 
-/* 8x8 sprite -> 16 rows of 16 bits (each pixel becomes 2x2) */
-function scale2(bytes){
-  const out = [];
-  bytes.forEach(b => {
-    let r = 0;
-    for (let k = 7; k >= 0; k--) r = (r << 2) | (((b >> k) & 1) ? 3 : 0);
-    out.push(r, r);
-  });
-  return out;
+/* Selections (names) per picker group */
+const GROUPS = [
+  { id:'p2',  title:'Part 2 pictures (8 x 8)', note:'Mystery picture on the front. Students rotate through the selected pictures.', lib:L8, min:1, on: p => REQ8.includes(p.name) },
+  { id:'c12', title:'Challenges 1 and 2 pictures (8 x 8)', note:'Decimal-byte pictures on the back. Each student never gets their own Part 2 picture here, so at least 3 are needed.', lib:L8, min:3, on: () => true },
+  { id:'p3',  title:'Part 3 pictures (16 x 16)', note:'Team picture on the front. Each group of four shares one.', lib:L_P3, min:1, on: () => true },
+  { id:'c3',  title:'Challenge 3 pictures (16 x 16)', note:'Team picture on the back, labeled in binary. Up to 16 pictures (4-bit IDs).', lib:L_C3, min:1, on: () => true }
+];
+const SEL = {};
+GROUPS.forEach(g => { SEL[g.id] = new Set(g.lib.filter(g.on).map(p => p.name)); });
+const chosen = id => GROUPS.find(g => g.id === id).lib.filter(p => SEL[id].has(p.name));
+
+function svgOf(p, n){
+  let r = '';
+  for (let y = 0; y < n; y++){
+    const row = p.rows[y]; let x = 0;
+    while (x < n){
+      if (row[x] === '#'){ let e = x; while (e < n && row[e] === '#') e++; r += '<rect x="' + x + '" y="' + y + '" width="' + (e - x) + '" height="1"/>'; x = e; } else x++;
+    }
+  }
+  return '<svg viewBox="0 0 ' + n + ' ' + n + '" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">' + r + '</svg>';
 }
-/* sections: A top-left, B top-right, C bottom-left, D bottom-right */
+function renderPickers(){
+  const host = $('pickers'); host.innerHTML = '';
+  GROUPS.forEach(g => {
+    const n = g.lib[0].rows.length;
+    const sec = document.createElement('div'); sec.className = 'grp';
+    sec.innerHTML = '<h3>' + g.title + '</h3><p>' + g.note + '</p>';
+    const tools = document.createElement('div'); tools.className = 'tools';
+    const bAll = document.createElement('button'); bAll.type = 'button'; bAll.className = 'ghost'; bAll.textContent = 'Select all';
+    const bNone = document.createElement('button'); bNone.type = 'button'; bNone.className = 'ghost'; bNone.textContent = 'Select none';
+    const cnt = document.createElement('span'); cnt.className = 'cnt';
+    tools.append(bAll, bNone, cnt); sec.appendChild(tools);
+    const cards = document.createElement('div'); cards.className = 'cards';
+    const upd = () => { cnt.textContent = SEL[g.id].size + ' of ' + g.lib.length + ' selected'; cards.querySelectorAll('.card').forEach(c => c.classList.toggle('off', !c.querySelector('input').checked)); };
+    g.lib.forEach(p => {
+      const lab = document.createElement('label'); lab.className = 'card';
+      lab.innerHTML = svgOf(p, n) + '<span>' + p.name + '</span><input type="checkbox">';
+      const cb = lab.querySelector('input'); cb.checked = SEL[g.id].has(p.name); cb.setAttribute('aria-label', p.name);
+      cb.addEventListener('change', () => { cb.checked ? SEL[g.id].add(p.name) : SEL[g.id].delete(p.name); upd(); });
+      cards.appendChild(lab);
+    });
+    bAll.addEventListener('click', () => { g.lib.forEach(p => SEL[g.id].add(p.name)); cards.querySelectorAll('input').forEach(i => i.checked = true); upd(); });
+    bNone.addEventListener('click', () => { SEL[g.id].clear(); cards.querySelectorAll('input').forEach(i => i.checked = false); upd(); });
+    sec.appendChild(cards); host.appendChild(sec); upd();
+  });
+}
+
+/* 8x8 sprite -> 16 rows of 16 bits not needed: 16x16 pictures are stored directly */
 function section(rows16, sec){
   const r0 = sec >= 2 ? 8 : 0, right = sec % 2 === 1;
   return rows16.slice(r0, r0 + 8).map(v => right ? (v & 255) : ((v >> 8) & 255));
@@ -143,20 +228,19 @@ function section(rows16, sec){
 const bin = (n, w = 8) => n.toString(2).padStart(w, '0');
 
 /* ---------- Assignment ---------- */
-function assign(names){
+function assign(names, cfg){
   const N = names.length, G = Math.max(1, Math.ceil(N / 4));
   return names.map((name, i) => {
-    const a = (i * 5 + 3) % 32;
-    let b = (i * 7 + 11) % 32; if (b === a) b = (b + 1) % 32;
+    const p2 = cfg.p2[i % cfg.p2.length];
+    const pool = cfg.c12, L = pool.length;
+    let ai = (i * 5 + 3) % L; while (pool[ai].name === p2.name) ai = (ai + 1) % L;
+    let bi = (i * 7 + 11) % L; while (pool[bi].name === p2.name || bi === ai) bi = (bi + 1) % L;
     const cg = i % G;
     return {
-      name, i,
-      p2: P2_IDX[i % 8],
-      p3pic: Math.floor(i / 4) % 4,
-      p3sec: i % 4,
-      cpic: (cg * 5 + 3) % 16,
-      csec: Math.floor(i / G),
-      a, b
+      name, i, p2,
+      a: pool[ai], b: pool[bi],
+      p3: cfg.p3[Math.floor(i / 4) % cfg.p3.length], p3sec: i % 4,
+      cpicIdx: cg % cfg.c3.length, c3: cfg.c3[cg % cfg.c3.length], csec: Math.floor(i / G)
     };
   });
 }
@@ -172,11 +256,13 @@ function newDoc(){
 }
 function page(d){ if (d._fresh) d._fresh = false; else d.addPage(); }
 
-function header(d, name, sub){
+function header(d, name, sub, side){
   d.setFont('helvetica','normal'); d.setFontSize(9); d.setTextColor(110);
   d.text(sub, PM, 10);
-  d.setFont('helvetica','bold'); d.setFontSize(18); d.setTextColor(0);
-  d.text('Name: ' + name, PM, 19);
+  const big = side === 0, sz = big ? 18 : 11;
+  d.setFont('helvetica','bold'); d.setFontSize(sz); d.setTextColor(0);
+  d.text('Name: ' + name, PM, big ? 19 : 17);
+  d.text('Side ' + side, W - PM, big ? 19 : 17, { align: 'right' });
   d.setDrawColor(0); d.setLineWidth(0.4); d.line(PM, 21.5, W - PM, 21.5);
 }
 function heading(d, t, x, y){
@@ -187,8 +273,6 @@ function note(d, t, x, y, w){
   const lines = d.splitTextToSize(t, w); d.text(lines, x, y); d.setTextColor(0);
   return y + lines.length * 3.6;
 }
-
-/* Blank grid for students (rows null) or filled grid for reference */
 function grid(d, x, y, cell, n, o = {}){
   const size = cell * n;
   if (o.marks){
@@ -218,7 +302,6 @@ function grid(d, x, y, cell, n, o = {}){
     d.setTextColor(0);
   }
 }
-/* Small filled picture for the teacher pages */
 function mini(d, x, y, cell, n, rows){
   d.setFillColor(0);
   for (let r = 0; r < n; r++) for (let c = 0; c < n; c++)
@@ -226,20 +309,27 @@ function mini(d, x, y, cell, n, rows){
   d.setDrawColor(120); d.setLineWidth(0.2); d.rect(x, y, cell * n, cell * n);
   if (n === 16){ d.setLineWidth(0.15); d.line(x + cell*8, y, x + cell*8, y + cell*16); d.line(x, y + cell*8, x + cell*16, y + cell*8); }
 }
-function byteBlock(d, x, y, bytes, mode, step = 8){
-  d.setFont('courier','normal'); d.setFontSize(11); d.setTextColor(0);
+function byteBlock(d, x, y, bytes, mode, step = 8, size = 11){
+  d.setFont('courier','normal'); d.setFontSize(size); d.setTextColor(0);
   const f = j => mode === 'dec'
     ? 'R' + (j + 1) + ': ' + String(bytes[j]).padStart(3, ' ') + ' = ________'
     : 'R' + (j + 1) + ': ' + bin(bytes[j]);
   for (let k = 0; k < 4; k++) d.text(f(2 * k) + '    ' + f(2 * k + 1), x, y + k * step);
 }
-function bank(d, x, y, w, title, words){
-  d.setFont('helvetica','bold'); d.setFontSize(8.5); d.setTextColor(0);
-  d.text(title, x + 2, y + 4.2);
-  d.setFont('helvetica','normal'); d.setFontSize(9);
-  const lines = d.splitTextToSize(words.join(',  '), w - 4);
-  d.text(lines, x + 2, y + 8.6);
-  const h = 8.6 + lines.length * 3.8;
+/* Word bank box; shrinks the font so the box stays within maxH. Returns bottom y. */
+function bank(d, x, y, w, title, words, maxH){
+  d.setTextColor(0); d.setFont('helvetica','normal');
+  let size = 9, lines, lh;
+  for (const sz of [9, 8.5, 8, 7.5, 7, 6.5, 6]){
+    size = sz; d.setFontSize(sz);
+    lh = sz * 0.42;
+    lines = d.splitTextToSize(words.join(',  '), w - 4);
+    if (!maxH || 8.6 + lines.length * lh <= maxH) break;
+  }
+  d.setFont('helvetica','bold'); d.setFontSize(8.5); d.text(title, x + 2, y + 4.2);
+  d.setFont('helvetica','normal'); d.setFontSize(size);
+  d.text(lines, x + 2, y + 8.6 + lh * 0.6, { lineHeightFactor: 1.15 });
+  const h = 8.6 + lines.length * lh * 1.15 + 1;
   d.setDrawColor(120); d.setLineWidth(0.25); d.rect(x, y, w, h);
   return y + h;
 }
@@ -251,13 +341,10 @@ function answerLine(d, x, y, label, len = 55){
 }
 
 /* ---------- Student pages ---------- */
-function studentPages(d, s){
-  const p2 = POOL[s.p2], p3 = POOL[P3_IDX[s.p3pic]], c3 = POOL[C3_BASE + s.cpic];
-  const A = POOL[s.a], B = POOL[s.b];
-
+function studentPages(d, s, cfg){
   /* FRONT */
   page(d);
-  header(d, s.name, 'Binary pictures: front');
+  header(d, s.name, 'Binary pictures: front', 0);
   note(d, 'Shade a box for every 1. Leave a box blank for every 0. Each byte is one row of the grid, and R1 is the top row.', PM, 27, W - 2*PM);
 
   heading(d, 'Part 1: Smiley face', PM, 36);
@@ -266,50 +353,52 @@ function studentPages(d, s){
 
   heading(d, 'Part 2: Mystery picture', PM, 98);
   grid(d, 20, 101, 6.5, 8, { rowNums: true });
-  byteBlock(d, 85, 108, p2.bytes, 'bin', 8);
-  bank(d, 85, 138, 118, 'Word bank', P2_IDX.map(k => POOL[k].name));
-  answerLine(d, 85, 158, 'This picture is a:');
+  byteBlock(d, 85, 108, s.p2.bytes, 'bin', 8);
+  const b2 = bank(d, 85, 136, 118, 'Word bank', cfg.p2.map(p => p.name), 20);
+  answerLine(d, 85, Math.min(b2 + 6, 163), 'This picture is a:');
 
   heading(d, 'Part 3: Team picture (16 x 16)', PM, 166);
   grid(d, 20, 170, 5, 16, { marks: true, rowNums: true, markSize: 40 });
   d.setFont('helvetica','bold'); d.setFontSize(22); d.setTextColor(0);
-  d.text('Picture ' + (s.p3pic + 1), 112, 182);
+  d.text('Picture ' + (cfg.p3.indexOf(s.p3) + 1), 112, 182);
   d.text('Section ' + LETTERS[s.p3sec], 112, 192);
-  byteBlock(d, 112, 202, section(scale2(p3.bytes), s.p3sec), 'bin', 8);
-  const yy = note(d, 'Shade section ' + LETTERS[s.p3sec] + ' only. Find classmates holding Picture ' + (s.p3pic + 1) + ' to get the other three sections.', 112, 237, 90);
-  bank(d, 112, yy + 1, 90, 'Word bank', P3_IDX.map(k => POOL[k].name));
-  answerLine(d, 112, 262, 'This picture is a:', 45);
+  byteBlock(d, 112, 202, section(s.p3.bytes, s.p3sec), 'bin', 8);
+  const yy = note(d, 'Shade section ' + LETTERS[s.p3sec] + ' only. Find classmates holding Picture ' + (cfg.p3.indexOf(s.p3) + 1) + ' to get the other three sections.', 112, 231, 90);
+  const b3 = bank(d, 112, yy + 1, 90, 'Word bank', cfg.p3.map(p => p.name), 18);
+  answerLine(d, 112, Math.min(b3 + 6, 266), 'This picture is a:', 45);
 
   /* BACK */
   page(d);
-  header(d, s.name, 'Binary pictures: challenges');
-  bank(d, PM, 25, W - 2*PM, 'Word bank for Challenges 1 and 2 (32 pictures)', POOL.map(p => p.name));
+  header(d, s.name, 'Binary pictures: challenges', 1);
+  bank(d, PM, 25, W - 2*PM, 'Word bank for Challenges 1 and 2', cfg.c12.map(p => p.name), 21);
 
   heading(d, 'Challenge 1: Decimal bytes', PM, 49);
   note(d, 'Place values: 128  64  32  16  8  4  2  1. Write each number in binary, then shade the grid.', 70, 49, 130);
   grid(d, 20, 53, 5.2, 8, { rowNums: true });
-  byteBlock(d, 70, 60, A.bytes, 'dec', 8);
+  byteBlock(d, 70, 60, s.a.bytes, 'dec', 8);
   answerLine(d, 70, 93, 'This picture is a:');
 
   heading(d, 'Challenge 2: Decimal bytes again', PM, 102);
   grid(d, 20, 106, 5.2, 8, { rowNums: true });
-  byteBlock(d, 70, 113, B.bytes, 'dec', 8);
+  byteBlock(d, 70, 113, s.b.bytes, 'dec', 8);
   answerLine(d, 70, 146, 'This picture is a:');
 
   heading(d, 'Challenge 3: Binary labels', PM, 156);
   grid(d, 20, 160, 5, 16, { marks: true, rowNums: true, markSize: 40 });
   d.setFont('helvetica','bold'); d.setFontSize(15); d.setTextColor(0);
-  d.text('Picture ID: ' + bin(s.cpic, 4), 112, 170);
+  d.text('Picture ID: ' + bin(s.cpicIdx, 4), 112, 170);
   d.text('Section: ' + bin(s.csec + 1, 4), 112, 178);
-  note(d, 'Sections: 0001 = A, 0010 = B, 0011 = C, 0100 = D. Shade your section, then find classmates with the same Picture ID.', 112, 184, 90);
-  byteBlock(d, 112, 198, section(scale2(c3.bytes), s.csec), 'bin', 8);
-  const y3 = bank(d, 112, 226, 90, 'Word bank (16 pictures)', Array.from({length:16}, (_, k) => POOL[C3_BASE + k].name));
-  answerLine(d, 112, y3 + 8, 'Section letter:', 14);
-  answerLine(d, 112, y3 + 16, 'This picture is a:', 45);
+  note(d, C3_DEC
+    ? 'Sections: 0001 = A, 0010 = B, 0011 = C, 0100 = D. Convert each byte to binary (128 64 32 16 8 4 2 1), shade your section, then find classmates with the same Picture ID.'
+    : 'Sections: 0001 = A, 0010 = B, 0011 = C, 0100 = D. Shade your section, then find classmates with the same Picture ID.', 112, 184, 90);
+  byteBlock(d, 112, 200, section(s.c3.bytes, s.csec), C3_DEC ? 'dec' : 'bin', 8, C3_DEC ? 9.5 : 11);
+  const y3 = bank(d, 112, 226, 90, 'Word bank (' + cfg.c3.length + ' picture' + (cfg.c3.length === 1 ? '' : 's') + ')', cfg.c3.map(p => p.name), 22);
+  answerLine(d, 112, Math.min(y3 + 7, 259), 'Section letter:', 14);
+  answerLine(d, 112, Math.min(y3 + 15, 266), 'This picture is a:', 45);
 }
 
 /* ---------- Teacher key ---------- */
-function teacherKey(d, students){
+function teacherKey(d, students, cfg){
   const cols = [PM, 20, 66, 90, 114, 136, 158];
   const titles = ['#','Name','Part 2','Part 3','Chall. 1','Chall. 2','Chall. 3 (ID / section)'];
   const rowH = 6, perPage = 38;
@@ -324,39 +413,42 @@ function teacherKey(d, students){
     titles.forEach((t, k) => d.text(t, cols[k], y));
     d.setLineWidth(0.4); d.setDrawColor(0); d.line(PM, y + 1.8, W - PM, y + 1.8);
     d.setFont('helvetica','normal'); d.setFontSize(8.5);
-    students.slice(start, start + perPage).forEach((s, k) => {
+    students.slice(start, start + perPage).forEach(s => {
       y += rowH;
       let nm = s.name; while (d.getTextWidth(nm) > 44 && nm.length > 3) nm = nm.slice(0, -1);
       const cells = [
-        String(s.i + 1), nm, POOL[s.p2].name,
-        (s.p3pic + 1) + LETTERS[s.p3sec] + ': ' + POOL[P3_IDX[s.p3pic]].name,
-        POOL[s.a].name, POOL[s.b].name,
-        bin(s.cpic, 4) + ' / ' + bin(s.csec + 1, 4) + ' (' + LETTERS[s.csec] + '): ' + POOL[C3_BASE + s.cpic].name
+        String(s.i + 1), nm, s.p2.name,
+        (cfg.p3.indexOf(s.p3) + 1) + LETTERS[s.p3sec] + ': ' + s.p3.name,
+        s.a.name, s.b.name,
+        bin(s.cpicIdx, 4) + ' / ' + bin(s.csec + 1, 4) + ' (' + LETTERS[s.csec] + '): ' + s.c3.name
       ];
       cells.forEach((t, c) => d.text(t, cols[c], y));
       d.setDrawColor(220); d.setLineWidth(0.15); d.line(PM, y + 1.8, W - PM, y + 1.8);
     });
   }
 
-  /* Reference page 1 */
+  /* Reference: 8 x 8 */
   page(d);
   d.setFont('helvetica','bold'); d.setFontSize(15); d.setTextColor(0);
   d.text('Reference pictures: 8 x 8', PM, 16);
   d.setFontSize(10); d.text('Part 1: smiley face', PM, 25);
   mini(d, PM, 28, 2.6, 8, SMILEY_BYTES);
   d.setFont('helvetica','normal'); d.setFontSize(8.5); d.setTextColor(70);
-  d.text('Pictures 1 to 8 are used in Part 2. All 32 are used in Challenges 1 and 2.', 50, 34);
+  d.text('Part 2 uses the pictures marked P2. Challenges 1 and 2 use those marked C.', 50, 34);
   d.setTextColor(0);
+  const used = L8.filter(p => SEL.p2.has(p.name) || SEL.c12.has(p.name));
   const cell = 2, gap = 6.3, perRow = 8;
-  POOL.forEach((p, k) => {
+  used.forEach((p, k) => {
     const col = k % perRow, row = Math.floor(k / perRow);
-    const x = PM + col * (cell * 8 + gap), y = 58 + row * (cell * 8 + gap + 5);
+    const x = PM + col * (cell * 8 + gap), y = 52 + row * (cell * 8 + gap + 5);
     mini(d, x, y, cell, 8, p.bytes);
     d.setFont('helvetica','normal'); d.setFontSize(7); d.setTextColor(0);
-    d.text((k + 1) + '. ' + p.name, x + cell * 4, y + cell * 8 + 3.5, { align: 'center' });
+    d.text(p.name, x + cell * 4, y + cell * 8 + 3.5, { align: 'center' });
+    const tag = (SEL.p2.has(p.name) ? 'P2' : '') + (SEL.p2.has(p.name) && SEL.c12.has(p.name) ? ' ' : '') + (SEL.c12.has(p.name) ? 'C' : '');
+    d.setFontSize(6); d.setTextColor(110); d.text(tag, x + cell * 4, y + cell * 8 + 6.5, { align: 'center' }); d.setTextColor(0);
   });
 
-  /* Reference page 2 */
+  /* Reference: 16 x 16 */
   page(d);
   d.setFont('helvetica','bold'); d.setFontSize(15); d.setTextColor(0);
   d.text('Reference pictures: 16 x 16', PM, 16);
@@ -364,27 +456,30 @@ function teacherKey(d, students){
   d.text('Sections: A top-left, B top-right, C bottom-left, D bottom-right.', PM, 22);
   d.setTextColor(0); d.setFont('helvetica','bold'); d.setFontSize(10);
   d.text('Part 3 pictures', PM, 31);
-  P3_IDX.forEach((idx, k) => {
-    const x = PM + k * 46, y = 34;
-    mini(d, x, y, 2, 16, scale2(POOL[idx].bytes));
-    d.setFont('helvetica','normal'); d.setFontSize(8); d.text('Picture ' + (k + 1) + ': ' + POOL[idx].name, x + 16, y + 36, { align: 'center' });
+  cfg.p3.forEach((p, k) => {
+    const x = PM + (k % 4) * 46, y = 34 + Math.floor(k / 4) * 42;
+    mini(d, x, y, 2, 16, p.bytes);
+    d.setFont('helvetica','normal'); d.setFontSize(8); d.setTextColor(0);
+    d.text('Picture ' + (k + 1) + ': ' + p.name, x + 16, y + 36, { align: 'center' });
   });
+  const y0 = 34 + Math.ceil(cfg.p3.length / 4) * 42 + 4;
   d.setFont('helvetica','bold'); d.setFontSize(10);
-  d.text('Challenge 3 pictures (Picture ID in binary)', PM, 90);
-  for (let k = 0; k < 16; k++){
+  d.text('Challenge 3 pictures (Picture ID in binary)', PM, y0);
+  cfg.c3.forEach((p, k) => {
     const col = k % 6, row = Math.floor(k / 6);
-    const x = PM + col * 32, y = 94 + row * 40;
-    mini(d, x, y, 1.5, 16, scale2(POOL[C3_BASE + k].bytes));
+    const x = PM + col * 32, y = y0 + 4 + row * 40;
+    mini(d, x, y, 1.5, 16, p.bytes);
     d.setFont('helvetica','normal'); d.setFontSize(7.5); d.setTextColor(0);
-    d.text(bin(k, 4) + ': ' + POOL[C3_BASE + k].name, x + 12, y + 28, { align: 'center' });
-  }
+    d.text(bin(k, 4) + ': ' + p.name, x + 12, y + 28, { align: 'center' });
+  });
 }
 
 /* ---------- UI ---------- */
-const $ = id => document.getElementById(id);
+function $(id){ return document.getElementById(id); }
 const status = (t, err) => { const s = $('status'); s.textContent = t; s.className = err ? 'err' : ''; };
 
 $('bits').innerHTML = SMILEY_BYTES.map(b => bin(b).split('').map(c => '<i class="' + (c === '1' ? 'on' : '') + '"></i>').join('')).join('');
+renderPickers();
 
 $('sample').addEventListener('click', () => {
   $('names').value = ['Ada Lovelace','Grace Hopper','Alan Turing','Katherine Johnson','Margaret Hamilton','Dennis Ritchie',
@@ -395,16 +490,22 @@ function build(){
   if (!window.jspdf){ status('The PDF library did not load. Check the internet connection and reload.', true); return null; }
   let names = $('names').value.split('\n').map(s => s.trim()).filter(Boolean);
   if (!names.length){ status('Add at least one student name.', true); return null; }
+  const cfg = { p2: chosen('p2'), c12: chosen('c12'), p3: chosen('p3'), c3: chosen('c3') };
+  for (const g of GROUPS){
+    if (cfg[g.id].length < g.min){ status('Select at least ' + g.min + ' picture' + (g.min > 1 ? 's' : '') + ' for "' + g.title + '".', true); return null; }
+  }
+  if (cfg.c3.length > 16){ status('Challenge 3 supports at most 16 pictures.', true); return null; }
+  C3_DEC = $('c3dec').checked;
   if ($('pad').checked){
     let k = 1; while (names.length % 4) names.push('Spare ' + (k++));
   }
-  const students = assign(names);
+  const students = assign(names, cfg);
   const sep = $('sepkey').checked;
   const main = newDoc();
-  students.forEach(s => studentPages(main, s));
+  students.forEach(s => studentPages(main, s, cfg));
   let key = null;
-  if (sep){ key = newDoc(); teacherKey(key, students); }
-  else teacherKey(main, students);
+  if (sep){ key = newDoc(); teacherKey(key, students, cfg); }
+  else teacherKey(main, students, cfg);
   return { main, key, count: students.length, sep };
 }
 
